@@ -1,0 +1,6 @@
+{
+  "name": "Laboratorio FIDO2 vs Contraseñas - UNER",
+  "description": "Laboratorio experimental de ciberseguridad para evaluar la resistencia técnica de FIDO2/Passkeys frente a contraseñas ante phishing e intercepción de tráfico.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
