@@ -22,12 +22,14 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
   const [filterEscenario, setFilterEscenario] = useState<'TODOS' | 'A' | 'B'>('TODOS');
   const [filterVector, setFilterVector] = useState<'TODOS' | '1' | '2'>('TODOS');
   const [filterResultado, setFilterResultado] = useState<'TODOS' | 'EXITO' | 'FALLO'>('TODOS');
+  const [filterTipo, setFilterTipo] = useState<'TODOS' | 'FORMAL' | 'PILOTO'>('TODOS');
 
   const v1 = stats?.vector1;
   const v2 = stats?.vector2;
   const latency = stats?.latency;
 
   const filteredRecords = records.filter((r) => {
+    if (filterTipo !== 'TODOS' && r.tipo_corrida !== filterTipo) return false;
     if (filterEscenario !== 'TODOS' && r.escenario !== filterEscenario) return false;
     if (filterVector !== 'TODOS' && String(r.vector) !== filterVector) return false;
     if (filterResultado !== 'TODOS' && r.resultado_ataque !== filterResultado) return false;
@@ -481,6 +483,16 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
               <option value="EXITO">Solo Éxito</option>
               <option value="FALLO">Solo Fallo</option>
             </select>
+
+            <select
+              value={filterTipo}
+              onChange={(e) => setFilterTipo(e.target.value as any)}
+              className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-slate-900 dark:text-white"
+            >
+              <option value="TODOS">Todos los Tipos</option>
+              <option value="FORMAL">Solo Formal (Experimento)</option>
+              <option value="PILOTO">Solo Piloto (Pruebas)</option>
+            </select>
           </div>
         </div>
 
@@ -489,19 +501,30 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
             <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 sticky top-0">
               <tr>
                 <th className="py-2 px-3 font-semibold">run_id</th>
+                <th className="py-2 px-3 font-semibold">tipo</th>
                 <th className="py-2 px-3 font-semibold">escenario</th>
                 <th className="py-2 px-3 font-semibold">vector</th>
                 <th className="py-2 px-3 font-semibold">variante</th>
                 <th className="py-2 px-3 font-semibold">resultado_ataque</th>
                 <th className="py-2 px-3 font-semibold">motivo_fallo</th>
                 <th className="py-2 px-3 font-semibold">latencia_ms</th>
-                <th className="py-2 px-3 font-semibold">primer_intento</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
               {filteredRecords.map((r) => (
                 <tr key={r.run_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td className="py-2 px-3 font-bold text-slate-900 dark:text-slate-100">{r.run_id}</td>
+                  <td className="py-2 px-3">
+                    <span
+                      className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                        r.tipo_corrida === 'FORMAL'
+                          ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-300'
+                      }`}
+                    >
+                      {r.tipo_corrida || 'FORMAL'}
+                    </span>
+                  </td>
                   <td className="py-2 px-3">
                     <span
                       className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${r.escenario === 'A'
@@ -522,8 +545,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
                     )}
                   </td>
                   <td className="py-2 px-3 text-slate-500 italic">{r.motivo_fallo ?? '-'}</td>
-                  <td className="py-2 px-3 font-mono tabular-nums">{r.latencia_ms.toFixed(2)}</td>
-                  <td className="py-2 px-3">{r.primer_intento}</td>
+                  <td className="py-2 px-3 font-mono tabular-nums">{r.latencia_ms.toFixed(4)}</td>
                 </tr>
               ))}
             </tbody>
