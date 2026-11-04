@@ -1,6 +1,7 @@
 export type Scenario = 'A' | 'B'; // 'A' = Contraseña Tradicional, 'B' = FIDO2/Passkey
 export type AttackVector = 1 | 2; // 1 = Phishing/Suplantación, 2 = Retransmisión/Replay
 export type AttackResult = 'EXITO' | 'FALLO';
+export type CorridaTipo = 'PILOTO' | 'FORMAL';
 
 export type PhishingVariant = 
   | 'subdominio'     // auth.legitimo-login.test
@@ -10,11 +11,15 @@ export type PhishingVariant =
   | 'esquema';       // http://legitimo.test
 
 export type ReplayVariant = 
-  | 'inmediato'      // 0s inmediato
-  | 'delay_10s'      // 10 segundos
-  | 'delay_1m'       // 1 minuto
-  | 'delay_5m'       // 5 minutos
-  | 'delay_30m';      // 30 minutos
+  | 'inmediato'      // 0 ms
+  | 'delay_100ms'    // 100 ms ejecutados
+  | 'delay_250ms'    // 250 ms ejecutados
+  | 'delay_500ms'    // 500 ms ejecutados
+  | 'delay_1000ms'   // 1000 ms (1 s) ejecutados
+  | 'delay_10s'      // Legacy
+  | 'delay_1m'       // Legacy
+  | 'delay_5m'       // Legacy
+  | 'delay_30m';     // Legacy
 
 export interface TelemetriaRecord {
   run_id: string;
@@ -26,7 +31,8 @@ export interface TelemetriaRecord {
   t_inicio: number;
   t_fin: number;
   latencia_ms: number;
-  primer_intento: number; // 1 = exito directo, 0 = requirio reintento o fallo
+  tipo_corrida: CorridaTipo; // 'PILOTO' | 'FORMAL'
+  primer_intento?: number; // Mantenido por compatibilidad, omitido del análisis formal según metodología
 }
 
 export interface FisherResult {

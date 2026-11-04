@@ -6,6 +6,7 @@ import {
   TelemetriaRecord,
   PhishingVariant,
   ReplayVariant,
+  CorridaTipo,
 } from '../types';
 
 export interface PasskeyCredential {
@@ -31,43 +32,18 @@ export interface WebAuthnChallenge {
   consumed: boolean;
 }
 
-export const EXPECTED_RP_ID = 'legitimo.test';
-export const EXPECTED_ORIGIN = 'https://legitimo.test';
+import {
+  EXPECTED_RP_ID,
+  EXPECTED_ORIGIN,
+  PHISHING_VARIANTS_MAP,
+  REPLAY_VARIANTS_MAP,
+} from '../constants';
 
-export const PHISHING_VARIANTS_MAP: Record<PhishingVariant, { label: string; fakeOrigin: string; fakeRpId: string }> = {
-  subdominio: {
-    label: 'Subdominio engañoso (auth.legitimo-login.test)',
-    fakeOrigin: 'https://auth.legitimo-login.test',
-    fakeRpId: 'auth.legitimo-login.test',
-  },
-  homoglifo: {
-    label: 'Homóglifo / Carácter similar (legıtimo.test con dotless-i)',
-    fakeOrigin: 'https://legıtimo.test',
-    fakeRpId: 'legıtimo.test',
-  },
-  puerto: {
-    label: 'Puerto alternativo (legitimo.test:8080)',
-    fakeOrigin: 'https://legitimo.test:8080',
-    fakeRpId: 'legitimo.test',
-  },
-  tld_prueba: {
-    label: 'TLD alternativo (.org.test vs .test)',
-    fakeOrigin: 'https://legitimo.org.test',
-    fakeRpId: 'legitimo.org.test',
-  },
-  esquema: {
-    label: 'Esquema no seguro (http:// vs https://)',
-    fakeOrigin: 'http://legitimo.test',
-    fakeRpId: 'legitimo.test',
-  },
-};
-
-export const REPLAY_VARIANTS_MAP: Record<ReplayVariant, { label: string; delayMs: number; delayStr: string }> = {
-  inmediato: { label: 'Inmediata (0s)', delayMs: 0, delayStr: '0s' },
-  delay_10s: { label: 'Demora 10 segundos', delayMs: 10000, delayStr: '10s' },
-  delay_1m: { label: 'Demora 1 minuto', delayMs: 60000, delayStr: '1m' },
-  delay_5m: { label: 'Demora 5 minutos', delayMs: 300000, delayStr: '5m' },
-  delay_30m: { label: 'Demora 30 minutos', delayMs: 1800000, delayStr: '30m' },
+export {
+  EXPECTED_RP_ID,
+  EXPECTED_ORIGIN,
+  PHISHING_VARIANTS_MAP,
+  REPLAY_VARIANTS_MAP,
 };
 
 // In-memory server session and challenges storage
@@ -133,15 +109,16 @@ export function issueWebAuthnChallenge(rpId = EXPECTED_RP_ID, origin = EXPECTED_
 }
 
 /**
- * Simulates a single attack run according to the formal specifications
+ * Executes a simulated attack measuring effective cryptographic latency and real delays
  */
-export function executeSimulatedAttack(
+export async function executeSimulatedAttack(
   runId: string,
   scenario: Scenario,
   vector: AttackVector,
   variantKey: string,
-  userState?: { username: string; password: string; passkey: PasskeyCredential }
-): {
+  userState?: { username: string; password: string; passkey: PasskeyCredential },
+  tipoCorrida: CorridaTipo = 'FORMAL'
+): Promise<{
   record: TelemetriaRecord;
   packetDetails: {
     requestPayload: any;
@@ -149,9 +126,8 @@ export function executeSimulatedAttack(
     attackerPayload: any;
     verificationLog: string[];
   };
-} {
+}> {
   const state = userState ?? setupCleanIterationState();
-  const t_inicio = performance.now();
   const verificationLog: string[] = [];
 
   let resultado_ataque: AttackResult = 'FALLO';
@@ -159,7 +135,10 @@ export function executeSimulatedAttack(
   let requestPayload: any = null;
   let interceptedPayload: any = null;
   let attackerPayload: any = null;
-  let primer_intento = 1;
+
+  let t_proc_start = performance.now();
+  let t_proc_end = performance.now();
+  let latencia_ms = 0;
 
   if (scenario === 'A') {
     // ----------------------------------------------------
@@ -182,34 +161,37 @@ export function executeSimulatedAttack(
         password: state.password,
       };
 
-      // Attacker captures password because it's sent in plain cleartext/HTTPS directly to the fake site
       interceptedPayload = { ...requestPayload };
       verificationLog.push(`[Atacante] Captura credenciales: usuario="${state.username}", password="${state.password}"`);
 
-      // Attacker replays stolen password to legitimate Relying Party
       attackerPayload = {
         target: EXPECTED_ORIGIN,
         username: interceptedPayload.username,
         password: interceptedPayload.password,
       };
-
       verificationLog.push(`[Atacante] Presenta credenciales en ${EXPECTED_ORIGIN}/login`);
 
-      // RP validates hash + salt
+      // RP validates hash + salt - Medición efectiva con performance.now()
+      t_proc_start = performance.now();
       const userRecord = traditionalUsers.get(attackerPayload.username);
-      if (userRecord && hashPassword(attackerPayload.password, userRecord.salt) === userRecord.hash) {
+      const isPasswordValid = userRecord && hashPassword(attackerPayload.password, userRecord.salt) === userRecord.hash;
+      t_proc_end = performance.now();
+      latencia_ms = parseFloat(Math.max(0.001, t_proc_end - t_proc_start).toFixed(4));
+
+      if (isPasswordValid) {
         resultado_ataque = 'EXITO';
-        verificationLog.push(`[RP] Hash verificado con éxito. Sesión creada para el atacante (VULNERABLE A PHISHING)`);
+        verificationLog.push(`[RP] Hash SHA-256 verificado en ${latencia_ms} ms. Sesión autorizada creada para el atacante (VULNERABLE A PHISHING).`);
       } else {
         resultado_ataque = 'FALLO';
         motivo_fallo = 'PASSWORD_MISMATCH';
+        verificationLog.push(`[RP] Contraseña incorrecta.`);
       }
     } else {
       // Vector 2: Retransmisión / Replay
       const delayInfo = REPLAY_VARIANTS_MAP[variantKey as ReplayVariant] || {
         label: variantKey,
         delayMs: 0,
-        delayStr: '0s',
+        delayStr: '0 ms',
       };
 
       verificationLog.push(`[Victima] Inicia autenticación legítima en ${EXPECTED_ORIGIN}`);
@@ -218,26 +200,33 @@ export function executeSimulatedAttack(
         password: state.password,
       };
 
-      // Legitimate auth succeeds
-      verificationLog.push(`[RP] Autenticación legítima completada`);
-
-      // Proxy intercepts the POST body
       interceptedPayload = { ...requestPayload, interceptedAt: Date.now() };
       verificationLog.push(`[Proxy Atacante] Intercepta payload de red: POST /api/tradicional/login`);
 
-      // Attacker replays payload after delay
+      // Demora real efectivamente ejecutada
+      if (delayInfo.delayMs > 0) {
+        verificationLog.push(`[Proxy Atacante] Reteniendo paquete durante ${delayInfo.delayStr} (espera física real)...`);
+        await new Promise((resolve) => setTimeout(resolve, delayInfo.delayMs));
+        verificationLog.push(`[Proxy Atacante] Espera efectiva de ${delayInfo.delayStr} completada.`);
+      }
+
       attackerPayload = {
         replayedAfter: delayInfo.delayStr,
         username: interceptedPayload.username,
         password: interceptedPayload.password,
       };
-      verificationLog.push(`[Atacante] Reenvía payload capturado tras demora de ${delayInfo.delayStr}`);
+      verificationLog.push(`[Atacante] Reenvía payload capturado al servidor legítimo`);
 
-      // Legitimate server accepts the reused password because no challenge/nonce exists
+      // RP validates reused credentials - Medición efectiva con performance.now()
+      t_proc_start = performance.now();
       const userRecord = traditionalUsers.get(attackerPayload.username);
-      if (userRecord && hashPassword(attackerPayload.password, userRecord.salt) === userRecord.hash) {
+      const isPasswordValid = userRecord && hashPassword(attackerPayload.password, userRecord.salt) === userRecord.hash;
+      t_proc_end = performance.now();
+      latencia_ms = parseFloat(Math.max(0.001, t_proc_end - t_proc_start).toFixed(4));
+
+      if (isPasswordValid) {
         resultado_ataque = 'EXITO';
-        verificationLog.push(`[RP] Servidor acepta contraseña reutilizada. Sesión no autorizada creada (VULNERABLE A REPLAY)`);
+        verificationLog.push(`[RP] Servidor acepta contraseña reutilizada en ${latencia_ms} ms. No existe nonce de un solo uso (VULNERABLE A REPLAY).`);
       } else {
         resultado_ataque = 'FALLO';
         motivo_fallo = 'PASSWORD_INVALID';
@@ -256,34 +245,35 @@ export function executeSimulatedAttack(
       };
 
       verificationLog.push(`[Victima] Navega al sitio de suplantación: ${variantInfo.fakeOrigin}`);
-      verificationLog.push(`[Atacante] Solicita firma WebAuthn con desafío retransmitido o forzado`);
+      verificationLog.push(`[Atacante] Inicia desafío WebAuthn hacia la víctima`);
 
-      // Issue legitimate challenge
+      // Challenge emitido por RP
       const legitimateChallenge = issueWebAuthnChallenge();
 
-      // The browser / WebAuthn client builds clientDataJSON binding the ACTUAL browser origin
+      // Cliente / Navegador WebAuthn genera clientDataJSON vinculando criptográficamente el origen real
       const clientDataJSONObj = {
         type: 'webauthn.get',
         challenge: legitimateChallenge,
-        origin: variantInfo.fakeOrigin, // Browser automatically injects the current host!
+        origin: variantInfo.fakeOrigin, // El navegador inyecta el host actual
         crossOrigin: false,
       };
       const clientDataJSON = Buffer.from(JSON.stringify(clientDataJSONObj)).toString('base64url');
 
-      // The virtual authenticator signs (authenticatorData + clientDataHash)
-      const authenticatorData = Buffer.from([
-        ...crypto.createHash('sha256').update(variantInfo.fakeRpId).digest(),
-        0x05, // UP (0x01) + UV (0x04)
-        0x00, 0x00, 0x00, 0x01, // sign_count = 1
+      // Autenticador virtual genera authenticatorData con SHA-256 del rpId visitado
+      const fakeRpIdHash = crypto.createHash('sha256').update(variantInfo.fakeRpId).digest();
+      const authenticatorData = Buffer.concat([
+        fakeRpIdHash,
+        Buffer.from([0x05]), // Flags: UP (0x01) + UV (0x04)
+        Buffer.from([0x00, 0x00, 0x00, 0x01]), // sign_count = 1
       ]).toString('base64url');
 
+      // Firma digital generada por el autenticador con clave privada Ed25519
+      const clientDataHash = crypto.createHash('sha256').update(Buffer.from(clientDataJSON, 'base64url')).digest();
       const dataToSign = Buffer.concat([
         Buffer.from(authenticatorData, 'base64url'),
-        crypto.createHash('sha256').update(Buffer.from(clientDataJSON, 'base64url')).digest(),
+        clientDataHash,
       ]);
-
-      const sign = crypto.sign(null, dataToSign, state.passkey.privateKeyPem);
-      const signature = sign.toString('base64url');
+      const signature = crypto.sign(null, dataToSign, state.passkey.privateKeyPem).toString('base64url');
 
       requestPayload = {
         id: state.passkey.credentialId,
@@ -294,35 +284,68 @@ export function executeSimulatedAttack(
 
       interceptedPayload = {
         id: state.passkey.credentialId,
-        rawResponse: {
-          clientDataJSON,
-          authenticatorData,
-          signature,
-        },
+        rawResponse: { clientDataJSON, authenticatorData, signature },
       };
 
-      verificationLog.push(`[Atacante] Captura afirmación WebAuthn y la reenvía al RP legítimo ${EXPECTED_ORIGIN}`);
+      verificationLog.push(`[Atacante] Captura afirmación WebAuthn firmada y la reenvía al RP legítimo ${EXPECTED_ORIGIN}`);
       attackerPayload = { ...interceptedPayload, forwardedTo: EXPECTED_ORIGIN };
 
-      // Relying Party (RP) applies the 4 cryptographic pillars:
-      // 1. Origin check: Origin_cliente in O_RP
-      // 2. RP ID check: RPID_credencial == RPID_esperado
-      // 3. Challenge check: Challenge matches and consumed
-      // 4. Verify(pk, sig, datos) == True
-      verificationLog.push(`[RP] Verificando 4 pilares: Origin, RP ID, Challenge y Firma Criptográfica...`);
+      // Relying Party (RP): Verificación Criptográfica Real de los 4 Pilares
+      verificationLog.push(`[RP] Iniciando verificación criptográfica formal en Relying Party...`);
 
-      if (clientDataJSONObj.origin !== EXPECTED_ORIGIN) {
+      t_proc_start = performance.now();
+
+      // 1. Reconstrucción y verificación formal de firma digital (Ed25519 / W3C WebAuthn)
+      const serverClientDataHash = crypto.createHash('sha256').update(Buffer.from(clientDataJSON, 'base64url')).digest();
+      const serverDataToVerify = Buffer.concat([
+        Buffer.from(authenticatorData, 'base64url'),
+        serverClientDataHash,
+      ]);
+      const signatureValid = crypto.verify(
+        null,
+        serverDataToVerify,
+        state.passkey.publicKeyPem,
+        Buffer.from(signature, 'base64url')
+      );
+
+      // 2. Comprobación de RP ID (primeros 32 bytes de authenticatorData == SHA-256(EXPECTED_RP_ID))
+      const expectedRpIdHash = crypto.createHash('sha256').update(EXPECTED_RP_ID).digest();
+      const receivedRpIdHash = Buffer.from(authenticatorData, 'base64url').subarray(0, 32);
+      const rpIdMatch = expectedRpIdHash.equals(receivedRpIdHash);
+
+      // 3. Comprobación de Origin binding
+      const originMatch = clientDataJSONObj.origin === EXPECTED_ORIGIN;
+
+      // 4. Comprobación de Challenge
+      const challengeEntry = activeChallenges.get(clientDataJSONObj.challenge);
+      const challengeValid = !!challengeEntry && !challengeEntry.consumed;
+
+      t_proc_end = performance.now();
+      latencia_ms = parseFloat(Math.max(0.001, t_proc_end - t_proc_start).toFixed(4));
+
+      if (!signatureValid) {
+        resultado_ataque = 'FALLO';
+        motivo_fallo = 'RECHAZO_FIRMA_INVALIDA';
+        verificationLog.push(`[RP] Pilar 4 (Firma Criptográfica): FALLO. La firma no pudo verificarse con la clave pública registrada.`);
+      } else {
+        verificationLog.push(`[RP] Pilar 4 (Firma Criptográfica): OK. Firma Ed25519 matemáticamente verificada con la clave pública registrada (${latencia_ms} ms).`);
+      }
+
+      if (!originMatch) {
         resultado_ataque = 'FALLO';
         motivo_fallo = 'RECHAZO_ORIGIN';
         verificationLog.push(
-          `[RP] RECHAZO_ORIGIN: Origin recibido "${clientDataJSONObj.origin}" no coincide con el origen esperado "${EXPECTED_ORIGIN}". Ataque mitigado.`
+          `[RP] Pilar 1 (Origin Binding): RECHAZO_ORIGIN. Origin del token "${clientDataJSONObj.origin}" no coincide con el origen esperado "${EXPECTED_ORIGIN}". Phishing neutralizado por el protocolo.`
         );
-      } else if (variantInfo.fakeRpId !== EXPECTED_RP_ID) {
+      } else if (!rpIdMatch) {
         resultado_ataque = 'FALLO';
         motivo_fallo = 'RECHAZO_RPID';
-        verificationLog.push(`[RP] RECHAZO_RPID: RPID no válido.`);
+        verificationLog.push(`[RP] Pilar 2 (RP ID Scope): RECHAZO_RPID. Hash de RP ID incompatible.`);
+      } else if (!challengeValid) {
+        resultado_ataque = 'FALLO';
+        motivo_fallo = 'RECHAZO_CHALLENGE';
+        verificationLog.push(`[RP] Pilar 3 (Challenge Nonce): RECHAZO_CHALLENGE.`);
       } else {
-        // In real passkeys, origin mismatch stops it immediately
         resultado_ataque = 'EXITO';
       }
     } else {
@@ -330,7 +353,7 @@ export function executeSimulatedAttack(
       const delayInfo = REPLAY_VARIANTS_MAP[variantKey as ReplayVariant] || {
         label: variantKey,
         delayMs: 0,
-        delayStr: '0s',
+        delayStr: '0 ms',
       };
 
       verificationLog.push(`[Victima] Inicia autenticación legítima en ${EXPECTED_ORIGIN}`);
@@ -344,10 +367,11 @@ export function executeSimulatedAttack(
       };
       const clientDataJSON = Buffer.from(JSON.stringify(clientDataJSONObj)).toString('base64url');
 
-      const authenticatorData = Buffer.from([
-        ...crypto.createHash('sha256').update(EXPECTED_RP_ID).digest(),
-        0x05, // UP + UV
-        0x00, 0x00, 0x00, 0x01,
+      const legitRpIdHash = crypto.createHash('sha256').update(EXPECTED_RP_ID).digest();
+      const authenticatorData = Buffer.concat([
+        legitRpIdHash,
+        Buffer.from([0x05]), // UP + UV
+        Buffer.from([0x00, 0x00, 0x00, 0x01]),
       ]).toString('base64url');
 
       const dataToSign = Buffer.concat([
@@ -363,49 +387,73 @@ export function executeSimulatedAttack(
         origin: EXPECTED_ORIGIN,
       };
 
-      // Step 1: Legitimate verification succeeds and CONSUMES the challenge!
+      // Paso 1: Autenticación legítima previa completada con éxito y CONSUME el challenge
       const activeChallengeEntry = activeChallenges.get(legitimateChallenge);
       if (activeChallengeEntry) {
         activeChallengeEntry.consumed = true;
-        // In strict mode, consumed challenge is eliminated or marked consumed
         activeChallenges.delete(legitimateChallenge);
-        verificationLog.push(`[RP] Autenticación legítima completada. Challenge nonce "${legitimateChallenge.substring(0, 10)}..." consumido e invalidado.`);
+        verificationLog.push(`[RP] Autenticación legítima completada. Challenge nonce "${legitimateChallenge.substring(0, 10)}..." consumido e invalidado en el RP.`);
       }
 
-      // Step 2: Attacker proxy captured the legitimate payload
+      // Paso 2: Proxy del atacante captura el paquete legítimo
       interceptedPayload = {
         id: state.passkey.credentialId,
         response: { clientDataJSON, authenticatorData, signature },
         capturedChallenge: legitimateChallenge,
       };
-      verificationLog.push(`[Proxy Atacante] Intercepta paquete con firma WebAuthn.`);
+      verificationLog.push(`[Proxy Atacante] Intercepta afirmación WebAuthn válida previa.`);
 
-      // Step 3: Attacker replays after delay
+      // Paso 3: Demora de retransmisión físicamente ejecutada
+      if (delayInfo.delayMs > 0) {
+        verificationLog.push(`[Proxy Atacante] Reteniendo paquete durante ${delayInfo.delayStr} (espera física real)...`);
+        await new Promise((resolve) => setTimeout(resolve, delayInfo.delayMs));
+        verificationLog.push(`[Proxy Atacante] Demora efectiva de ${delayInfo.delayStr} completada.`);
+      }
+
       attackerPayload = {
         replayedAfter: delayInfo.delayStr,
         payload: interceptedPayload,
       };
-      verificationLog.push(`[Atacante] Intenta retransmitir la afirmación previa en una sesión posterior (${delayInfo.delayStr})...`);
+      verificationLog.push(`[Atacante] Reenvía la afirmación WebAuthn capturada al RP en una sesión posterior`);
 
-      // Step 4: RP issues a NEW challenge for the new session, or searches the old challenge
-      const hasOldChallenge = activeChallenges.has(legitimateChallenge);
+      // Paso 4: RP verifica la afirmación retransmitida con performance.now()
+      t_proc_start = performance.now();
 
-      if (!hasOldChallenge) {
+      // Comprobación de challenge de 1 solo uso
+      const challengeEntry = activeChallenges.get(legitimateChallenge);
+      const isChallengeActive = !!challengeEntry && !challengeEntry.consumed;
+
+      // Verificación formal de la firma sobre el paquete retransmitido
+      const serverClientDataHash = crypto.createHash('sha256').update(Buffer.from(clientDataJSON, 'base64url')).digest();
+      const serverDataToVerify = Buffer.concat([
+        Buffer.from(authenticatorData, 'base64url'),
+        serverClientDataHash,
+      ]);
+      const signatureValid = crypto.verify(
+        null,
+        serverDataToVerify,
+        state.passkey.publicKeyPem,
+        Buffer.from(signature, 'base64url')
+      );
+
+      t_proc_end = performance.now();
+      latencia_ms = parseFloat(Math.max(0.001, t_proc_end - t_proc_start).toFixed(4));
+
+      if (signatureValid) {
+        verificationLog.push(`[RP] Pilar 4 (Firma Criptográfica): OK. La firma fue válida para los datos originales (${latencia_ms} ms).`);
+      }
+
+      if (!isChallengeActive) {
         resultado_ataque = 'FALLO';
-        motivo_fallo = delayInfo.delayMs > 60000 ? 'CHALLENGE_EXPIRED' : 'CHALLENGE_CONSUMED';
+        motivo_fallo = delayInfo.delayMs >= 1000 ? 'CHALLENGE_EXPIRED' : 'CHALLENGE_CONSUMED';
         verificationLog.push(
-          `[RP] ${motivo_fallo}: El challenge ya fue consumido en la sesión previa o ha expirado. Firma rechazada. Ataque de replay neutralizado.`
+          `[RP] Pilar 3 (Nonce de 1 Solo Uso): ${motivo_fallo}. El desafío ya fue consumido en la sesión legítima anterior. Retransmisión rechazada.`
         );
       } else {
         resultado_ataque = 'EXITO';
       }
     }
   }
-
-  const t_fin = performance.now();
-  // Ensure realistic latency representation (monotonic delta)
-  const baseLatency = scenario === 'A' ? 24.5 + Math.random() * 8.0 : 42.0 + Math.random() * 12.0;
-  const latencia_ms = parseFloat(baseLatency.toFixed(2));
 
   const record: TelemetriaRecord = {
     run_id: runId,
@@ -414,10 +462,11 @@ export function executeSimulatedAttack(
     variante: variantKey,
     resultado_ataque,
     motivo_fallo,
-    t_inicio: parseFloat((t_inicio / 1000).toFixed(4)),
-    t_fin: parseFloat(((t_inicio + baseLatency) / 1000).toFixed(4)),
+    t_inicio: parseFloat((t_proc_start / 1000).toFixed(4)),
+    t_fin: parseFloat((t_proc_end / 1000).toFixed(4)),
     latencia_ms,
-    primer_intento,
+    tipo_corrida: tipoCorrida,
+    primer_intento: 1,
   };
 
   return {
@@ -432,20 +481,21 @@ export function executeSimulatedAttack(
 }
 
 /**
- * Runs a standardized N=50 batch for a given vector and scenario (or 200 runs across all combinations)
+ * Runs a standardized batch simulation with real waits and real cryptographic measurements
  */
-export function runBatchSimulation(
+export async function runBatchSimulation(
   targetScenario: 'A' | 'B' | 'AMBOS',
   targetVector: 1 | 2 | 'AMBOS',
-  repsPerVariant = 10
-): {
+  repsPerVariant = 10,
+  tipoCorrida: CorridaTipo = 'FORMAL'
+): Promise<{
   records: TelemetriaRecord[];
   summary: { total: number; exitos: number; fallos: number };
-} {
+}> {
   const scenarios: Scenario[] = targetScenario === 'AMBOS' ? ['A', 'B'] : [targetScenario];
   const vectors: AttackVector[] = targetVector === 'AMBOS' ? [1, 2] : [targetVector];
   const phishingVariants: PhishingVariant[] = ['subdominio', 'homoglifo', 'puerto', 'tld_prueba', 'esquema'];
-  const replayVariants: ReplayVariant[] = ['inmediato', 'delay_10s', 'delay_1m', 'delay_5m', 'delay_30m'];
+  const replayVariants: ReplayVariant[] = ['inmediato', 'delay_100ms', 'delay_250ms', 'delay_500ms', 'delay_1000ms'];
 
   const records: TelemetriaRecord[] = [];
   const batchTag = Date.now().toString().slice(-4);
@@ -456,8 +506,8 @@ export function runBatchSimulation(
       const variants = vec === 1 ? phishingVariants : replayVariants;
       for (const variant of variants) {
         for (let rep = 1; rep <= repsPerVariant; rep++) {
-          const runId = `RUN-${esc}-V${vec}-${variant.substring(0, 4)}-${batchTag}-${String(counter++).padStart(3, '0')}`;
-          const { record } = executeSimulatedAttack(runId, esc, vec, variant);
+          const runId = `RUN-${esc}-V${vec}-${variant.substring(0, 5)}-${batchTag}-${String(counter++).padStart(3, '0')}`;
+          const { record } = await executeSimulatedAttack(runId, esc, vec, variant, undefined, tipoCorrida);
           records.push(record);
         }
       }

@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
-import { TelemetriaRecord } from '../types';
+import { TelemetriaRecord, CorridaTipo } from '../types';
 
 let dbInstance: DatabaseSync | null = null;
 
@@ -25,7 +25,8 @@ export function initSchema(db: DatabaseSync) {
       t_inicio REAL NOT NULL,
       t_fin REAL NOT NULL,
       latencia_ms REAL NOT NULL,
-      primer_intento INTEGER NOT NULL
+      tipo_corrida TEXT NOT NULL DEFAULT 'FORMAL',
+      primer_intento INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS usuarios_tradicional (
@@ -43,14 +44,21 @@ export function initSchema(db: DatabaseSync) {
       created_at TEXT NOT NULL
     );
   `);
+
+  // Migration: ensure tipo_corrida exists if the table was created previously
+  try {
+    db.exec(`ALTER TABLE telemetria_experimento ADD COLUMN tipo_corrida TEXT NOT NULL DEFAULT 'FORMAL';`);
+  } catch {
+    // Column already exists
+  }
 }
 
 export function insertTelemetria(record: TelemetriaRecord): void {
   const db = getDb();
   const stmt = db.prepare(`
     INSERT INTO telemetria_experimento (
-      run_id, escenario, vector, variante, resultado_ataque, motivo_fallo, t_inicio, t_fin, latencia_ms, primer_intento
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      run_id, escenario, vector, variante, resultado_ataque, motivo_fallo, t_inicio, t_fin, latencia_ms, tipo_corrida, primer_intento
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     record.run_id,
@@ -62,14 +70,18 @@ export function insertTelemetria(record: TelemetriaRecord): void {
     record.t_inicio,
     record.t_fin,
     record.latencia_ms,
-    record.primer_intento
+    record.tipo_corrida || 'FORMAL',
+    record.primer_intento ?? 1
   );
 }
 
-export function getAllTelemetria(): TelemetriaRecord[] {
+export function getAllTelemetria(tipo?: CorridaTipo): TelemetriaRecord[] {
   const db = getDb();
-  const stmt = db.prepare(`SELECT * FROM telemetria_experimento ORDER BY rowid ASC`);
-  const rows = stmt.all() as any[];
+  const query = tipo
+    ? `SELECT * FROM telemetria_experimento WHERE tipo_corrida = ? ORDER BY rowid ASC`
+    : `SELECT * FROM telemetria_experimento ORDER BY rowid ASC`;
+  const stmt = db.prepare(query);
+  const rows = (tipo ? stmt.all(tipo) : stmt.all()) as any[];
   return rows.map((r) => ({
     run_id: String(r.run_id),
     escenario: r.escenario as 'A' | 'B',
@@ -80,19 +92,25 @@ export function getAllTelemetria(): TelemetriaRecord[] {
     t_inicio: Number(r.t_inicio),
     t_fin: Number(r.t_fin),
     latencia_ms: Number(r.latencia_ms),
-    primer_intento: Number(r.primer_intento),
+    tipo_corrida: (r.tipo_corrida || 'FORMAL') as CorridaTipo,
+    primer_intento: r.primer_intento != null ? Number(r.primer_intento) : 1,
   }));
 }
 
-export function clearTelemetria(): void {
+export function clearTelemetria(tipo?: CorridaTipo): void {
   const db = getDb();
-  db.exec(`DELETE FROM telemetria_experimento;`);
-  db.exec(`DELETE FROM usuarios_tradicional;`);
-  db.exec(`DELETE FROM credenciales_passkey;`);
+  if (tipo) {
+    const stmt = db.prepare(`DELETE FROM telemetria_experimento WHERE tipo_corrida = ?;`);
+    stmt.run(tipo);
+  } else {
+    db.exec(`DELETE FROM telemetria_experimento;`);
+    db.exec(`DELETE FROM usuarios_tradicional;`);
+    db.exec(`DELETE FROM credenciales_passkey;`);
+  }
 }
 
-export function exportCsvString(): string {
-  const records = getAllTelemetria();
+export function exportCsvString(tipo?: CorridaTipo): string {
+  const records = getAllTelemetria(tipo);
   const headers = [
     'run_id',
     'escenario',
@@ -103,7 +121,7 @@ export function exportCsvString(): string {
     't_inicio',
     't_fin',
     'latencia_ms',
-    'primer_intento',
+    'tipo_corrida',
   ];
 
   const rows = records.map((r) => [
@@ -115,8 +133,8 @@ export function exportCsvString(): string {
     r.motivo_fallo ? `"${r.motivo_fallo.replace(/"/g, '""')}"` : '',
     r.t_inicio.toFixed(4),
     r.t_fin.toFixed(4),
-    r.latencia_ms.toFixed(2),
-    r.primer_intento,
+    r.latencia_ms.toFixed(4),
+    r.tipo_corrida,
   ]);
 
   return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');

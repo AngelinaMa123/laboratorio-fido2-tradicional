@@ -14,6 +14,7 @@ import {
   runBatchSimulation,
 } from './src/services/crypto-lab.ts';
 import { generateStatisticsReport } from './src/services/statistics.ts';
+import { CorridaTipo } from './src/types/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,28 +25,19 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Initialize SQLite database
-  const db = getDb();
-
-  // If table is empty on first boot, pre-populate standard N=50 baseline (200 total runs)
-  const existingRecords = getAllTelemetria();
-  if (existingRecords.length === 0) {
-    console.log('[Laboratorio FIDO2] Inicializando base de datos con corrida experimental N=200...');
-    const initialBatch = runBatchSimulation('AMBOS', 'AMBOS', 10);
-    for (const rec of initialBatch.records) {
-      insertTelemetria(rec);
-    }
-    console.log(`[Laboratorio FIDO2] ${initialBatch.records.length} iteraciones registradas en SQLite.`);
-  }
+  // Initialize SQLite database (schema only, no artificial auto-population on boot)
+  getDb();
+  console.log('[Laboratorio FIDO2] Base de datos SQLite lista (sin auto-inicialización de datos).');
 
   // -------------------------------------------------------------
   // API ROUTES
   // -------------------------------------------------------------
 
-  // Get all telemetry records
+  // Get telemetry records (optional filter ?tipo=PILOTO | FORMAL)
   app.get('/api/telemetria', (req, res) => {
     try {
-      const records = getAllTelemetria();
+      const tipo = req.query.tipo as CorridaTipo | undefined;
+      const records = getAllTelemetria(tipo);
       res.json({ success: true, count: records.length, records });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -55,36 +47,46 @@ async function startServer() {
   // Export CSV
   app.get('/api/telemetria/export-csv', (req, res) => {
     try {
-      const csv = exportCsvString();
+      const tipo = req.query.tipo as CorridaTipo | undefined;
+      const csv = exportCsvString(tipo);
+      const filename = tipo 
+        ? `telemetria_fido2_${tipo.toLowerCase()}.csv` 
+        : `telemetria_fido2_experimento.csv`;
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="telemetria_fido2_experimento.csv"');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(csv);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Reset experimental database (clean slate)
+  // Reset experimental database (clean slate or by type)
   app.post('/api/telemetria/reset', (req, res) => {
     try {
-      clearTelemetria();
-      res.json({ success: true, message: 'Base de datos de telemetría reiniciada a estado limpio.' });
+      const { tipo } = req.body || {};
+      clearTelemetria(tipo as CorridaTipo | undefined);
+      res.json({ 
+        success: true, 
+        message: tipo 
+          ? `Registros de tipo "${tipo}" eliminados con éxito.` 
+          : 'Base de datos de telemetría reiniciada a estado limpio.' 
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // Run automated batch simulation (N=50 or custom)
-  app.post('/api/simulation/batch', (req, res) => {
+  // Run automated batch simulation (Formal Experiment)
+  app.post('/api/simulation/batch', async (req, res) => {
     try {
       const { scenario = 'AMBOS', vector = 'AMBOS', repsPerVariant = 10 } = req.body;
-      const result = runBatchSimulation(scenario, vector, repsPerVariant);
+      const result = await runBatchSimulation(scenario, vector, repsPerVariant, 'FORMAL');
 
       for (const rec of result.records) {
         insertTelemetria(rec);
       }
 
-      const allRecords = getAllTelemetria();
+      const allRecords = getAllTelemetria('FORMAL');
       const stats = generateStatisticsReport(allRecords);
 
       res.json({
@@ -99,12 +101,12 @@ async function startServer() {
     }
   });
 
-  // Run single attack step (for interactive manual playground)
-  app.post('/api/simulation/single', (req, res) => {
+  // Run single attack step (Interactive manual playground - Pilot/Trial run)
+  app.post('/api/simulation/single', async (req, res) => {
     try {
       const { scenario = 'A', vector = 1, variant = 'subdominio' } = req.body;
-      const runId = `MANUAL-${scenario}-V${vector}-${Date.now().toString().slice(-4)}`;
-      const result = executeSimulatedAttack(runId, scenario, vector, variant);
+      const runId = `PILOTO-${scenario}-V${vector}-${Date.now().toString().slice(-4)}`;
+      const result = await executeSimulatedAttack(runId, scenario, vector, variant, undefined, 'PILOTO');
 
       // Save to SQLite
       insertTelemetria(result.record);
@@ -123,12 +125,13 @@ async function startServer() {
     }
   });
 
-  // Get full statistical report
+  // Get full statistical report (supports ?tipo=FORMAL or all)
   app.get('/api/stats/report', (req, res) => {
     try {
-      const records = getAllTelemetria();
+      const tipo = req.query.tipo as CorridaTipo | undefined;
+      const records = getAllTelemetria(tipo);
       const stats = generateStatisticsReport(records);
-      res.json({ success: true, stats });
+      res.json({ success: true, stats, totalRecords: records.length });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
