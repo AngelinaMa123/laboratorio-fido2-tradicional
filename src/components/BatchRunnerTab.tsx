@@ -96,10 +96,10 @@ export const BatchRunnerTab: React.FC<BatchRunnerTabProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              Ejecutor Automatizado de Pruebas Controladas (Task 9 &amp; 10)
+              Ejecutor Automatizado de Pruebas Controladas (Experimento Formal)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Ejecución reproducible sin participantes humanos: simula Chromium con DevTools Protocol y WebAuthn Virtual.
+              Ejecución reproducible: banco de pruebas de validación criptográfica y protocolos de autenticación con esperas y latencias reales.
             </p>
           </div>
 
