@@ -92,7 +92,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
                   <th className="py-2 text-left">Esquema</th>
                   <th className="py-2 text-right">Éxito Atacante</th>
                   <th className="py-2 text-right">Fallo Atacante</th>
-                  <th className="py-2 text-right">Total ($n$)</th>
+                  <th className="py-2 text-right">Total (n)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -136,7 +136,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
               </strong>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-600 dark:text-slate-300">Significación estadística ($\alpha = 0.05$):</span>
+              <span className="text-slate-600 dark:text-slate-300">Significación estadística (α = 0.05):</span>
               <span
                 className={`font-semibold ${v1?.fisher.isSignificant ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'
                   }`}
@@ -174,7 +174,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
                   <th className="py-2 text-left">Esquema</th>
                   <th className="py-2 text-right">Éxito Atacante</th>
                   <th className="py-2 text-right">Fallo Atacante</th>
-                  <th className="py-2 text-right">Total ($n$)</th>
+                  <th className="py-2 text-right">Total (n)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -218,7 +218,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
               </strong>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-600 dark:text-slate-300">Significación estadística ($\alpha = 0.05$):</span>
+              <span className="text-slate-600 dark:text-slate-300">Significación estadística (α = 0.05):</span>
               <span
                 className={`font-semibold ${v2?.fisher.isSignificant ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'
                   }`}
@@ -244,7 +244,7 @@ export const TelemetryAnalysisTab: React.FC<TelemetryAnalysisTabProps> = ({
               Intervalos de Confianza Exactos de Clopper-Pearson (95%)
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Estimación binomial rigurosa de la tasa de ataque para $N=50$ réplicas.
+              Estimación binomial rigurosa de la tasa de ataque para N=50 réplicas.
             </p>
           </div>
           <span className="text-xs font-mono text-blue-600 dark:text-blue-400">Biometrika (1934)</span>

@@ -73,7 +73,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Criterio 1: Reducción $\ge$ 50%</span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Criterio 1: Reducción ≥ 50%</span>
               {v1 && v2 && v1.fisher.relativeReduction >= 50 && v2.fisher.relativeReduction >= 50 ? (
                 <CheckCircle className="w-4 h-4 text-emerald-600" />
               ) : (
